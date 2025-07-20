@@ -1,0 +1,4 @@
+npm run build
+aws s3 mb s3://my-serverless-blog-frontend
+aws s3 sync build/ s3://my-serverless-blog-frontend --acl public-read
+aws cloudfront create-distribution --origin-domain-name my-serverless-blog-frontend.s3.amazonaws.com
