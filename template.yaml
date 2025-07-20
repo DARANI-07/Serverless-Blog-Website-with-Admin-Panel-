@@ -1,0 +1,123 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Globals:
+  Function:
+    Runtime: nodejs18.x
+    Timeout: 10
+
+Resources:
+  BlogTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: BlogTable
+      AttributeDefinitions:
+        - AttributeName: postId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: postId
+          KeyType: HASH
+      BillingMode: PAY_PER_REQUEST
+
+  BlogAPI:
+    Type: AWS::Serverless::Api
+    Properties:
+      StageName: Prod
+      Auth:
+        DefaultAuthorizer: CognitoAuthorizer
+        Authorizers:
+          CognitoAuthorizer:
+            UserPoolArn: !GetAtt UserPool.Arn
+      DefinitionBody:
+        swagger: "2.0"
+        paths:
+          /posts:
+            get:
+              x-amazon-apigateway-integration:
+                uri: !Sub arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${GetPostsFunction.Arn}/invocations
+                httpMethod: POST
+                type: aws_proxy
+            post:
+              security:
+                - CognitoAuthorizer: []
+              x-amazon-apigateway-integration:
+                uri: !Sub arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${CreatePostFunction.Arn}/invocations
+                httpMethod: POST
+                type: aws_proxy
+          /posts/{postId}:
+            delete:
+              security:
+                - CognitoAuthorizer: []
+              x-amazon-apigateway-integration:
+                uri: !Sub arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${DeletePostFunction.Arn}/invocations
+                httpMethod: POST
+                type: aws_proxy
+
+  GetPostsFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/
+      Handler: handlers.getPosts
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: BlogTable
+      Events:
+        Api:
+          Type: Api
+          Properties:
+            RestApiId: !Ref BlogAPI
+            Path: /posts
+            Method: get
+
+  CreatePostFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/
+      Handler: handlers.createPost
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: BlogTable
+      Events:
+        Api:
+          Type: Api
+          Properties:
+            RestApiId: !Ref BlogAPI
+            Path: /posts
+            Method: post
+
+  DeletePostFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/
+      Handler: handlers.deletePost
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: BlogTable
+      Events:
+        Api:
+          Type: Api
+          Properties:
+            RestApiId: !Ref BlogAPI
+            Path: /posts/{postId}
+            Method: delete
+
+  UserPool:
+    Type: AWS::Cognito::UserPool
+    Properties:
+      UserPoolName: BlogUserPool
+      AutoVerifiedAttributes: [email]
+
+  UserPoolClient:
+    Type: AWS::Cognito::UserPoolClient
+    Properties:
+      ClientName: BlogUserPoolClient
+      GenerateSecret: false
+      UserPoolId: !Ref UserPool
+
+Outputs:
+  BlogApiURL:
+    Description: "API Gateway URL"
+    Value: !Sub "https://${BlogAPI}.execute-api.${AWS::Region}.amazonaws.com/Prod"
+  UserPoolId:
+    Value: !Ref UserPool
+  UserPoolClientId:
+    Value: !Ref UserPoolClient
